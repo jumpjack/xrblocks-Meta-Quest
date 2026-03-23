@@ -193,14 +193,28 @@ describe('XRDeviceCamera', () => {
     warnSpy.mockRestore();
   });
 
-  it('surfaces getUserMedia errors outside immersive-ar sessions', async () => {
+  it('falls back to XR camera access when a renderer is available', async () => {
+    const getUserMediaError = new Error('NotReadableError');
+    vi.mocked(navigator.mediaDevices.getUserMedia).mockRejectedValue(
+      getUserMediaError
+    );
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    camera.setRenderer(createMockRenderer('immersive-vr'));
+
+    await expect(camera.init()).resolves.toBeUndefined();
+    expect(camera.isUsingXRCameraAccess).toBe(true);
+    expect(camera.state).toBe(StreamState.INITIALIZING);
+
+    warnSpy.mockRestore();
+  });
+
+  it('surfaces getUserMedia errors when no renderer is available', async () => {
     const getUserMediaError = new Error('NotReadableError');
     vi.mocked(navigator.mediaDevices.getUserMedia).mockRejectedValue(
       getUserMediaError
     );
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    camera.setRenderer(createMockRenderer('immersive-vr'));
 
     await expect(camera.init()).rejects.toThrow(getUserMediaError);
     expect(camera.isUsingXRCameraAccess).toBe(false);

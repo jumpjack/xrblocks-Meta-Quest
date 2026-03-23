@@ -41,14 +41,6 @@ export class XRDeviceCamera extends VideoStream<XRDeviceCameraDetails> {
   private useXRCameraAccess_ = false;
   private xrCameraTexture_?: THREE.ExternalTexture;
 
-  private shouldUseXRCameraAccessFallback_() {
-    const session = this.renderer_?.xr.getSession() as
-      | (XRSession & {mode?: XRSessionMode})
-      | null
-      | undefined;
-    return session?.mode === 'immersive-ar';
-  }
-
   /**
    * @param options - The configuration options.
    */
@@ -106,7 +98,7 @@ export class XRDeviceCamera extends VideoStream<XRDeviceCameraDetails> {
         console.warn('No video devices found.');
       }
     } catch (error) {
-      if (this.shouldUseXRCameraAccessFallback_()) {
+      if (this.renderer_) {
         console.warn(
           'Camera initialization failed. ' +
             'Falling back to WebXR Raw Camera Access API.',

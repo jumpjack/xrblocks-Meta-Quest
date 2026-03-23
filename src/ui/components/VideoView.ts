@@ -73,7 +73,7 @@ export class VideoView extends View {
 
     const videoGeometry = new THREE.PlaneGeometry(1, 1);
     const videoMaterial = new THREE.MeshBasicMaterial({
-      transparent: true,
+      transparent: false, // Testing if WebXR external texture transparent bug is alpha-blending randomly
       depthWrite: false,
       side: THREE.DoubleSide,
       // `map` will be set based on options.texture or during load
@@ -140,7 +140,10 @@ export class VideoView extends View {
     this.disposeStreamListener_();
     this.stream_ = stream;
 
-    this.streamReadyCallback_ = (event: {details?: {aspectRatio?: number}}) => {
+    this.streamReadyCallback_ = (event: {
+      details?: {aspectRatio?: number};
+      aspectRatio?: number;
+    }) => {
       if (!this.stream_?.texture) {
         console.warn('Stream is ready, but its texture is not available.');
         return;
@@ -151,8 +154,9 @@ export class VideoView extends View {
         this.loadFromTexture(this.stream_.texture);
       }
       // The event from VideoStream provides the definitive aspect ratio
-      if (event.details?.aspectRatio !== undefined) {
-        this.videoAspectRatio = event.details?.aspectRatio;
+      const aspectRatio = event.aspectRatio ?? event.details?.aspectRatio;
+      if (aspectRatio !== undefined) {
+        this.videoAspectRatio = aspectRatio;
       }
       this.updateLayout();
     };
