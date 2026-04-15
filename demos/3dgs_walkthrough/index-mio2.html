@@ -148,6 +148,30 @@ const SPLAT_ASSETS = [
           xb.add(this.inputHandler);
           console.log('WalkthroughManager: InputHandler aggiunto.');
 
+          // Aggiungi un listener più generico per qualsiasi evento di input
+          this.inputHandler.addEventListener('inputsourcechange', (event) => {
+              console.log('Input: Un input source (controller/mano) è cambiato o è stato rilevato!', event.detail);
+          });
+          this.inputHandler.addEventListener('inputsourceschange', (event) => { // Plurale, per quando cambiano più sorgenti
+              console.log('Input: I input sources sono cambiati!', event.detail);
+          });
+          this.inputHandler.addEventListener('squeezestart', (event) => {
+              console.log('Input: Evento squeezestart (grip) rilevato!', event.detail);
+          });
+          this.inputHandler.addEventListener('squeezeend', (event) => {
+              console.log('Input: Evento squeezeend (grip) rilevato!', event.detail);
+          });
+          this.inputHandler.addEventListener('thumbstickmove', (event) => {
+              // console.log('Input: Thumbstick mosso!', event.detail); // Commentato per non intasare la console
+          });
+          this.inputHandler.addEventListener('buttonpress', (event) => {
+              console.log('Input: Pulsante controller premuto!', event.detail);
+          });
+          this.inputHandler.addEventListener('buttonrelease', (event) => {
+              console.log('Input: Pulsante controller rilasciato!', event.detail);
+          });
+
+
           this.inputHandler.addEventListener('selectstart', (event) => {
               console.log('Input: Evento selectstart rilevato!', event.detail);
               // Se il fade non è in corso, cambia lo splat
