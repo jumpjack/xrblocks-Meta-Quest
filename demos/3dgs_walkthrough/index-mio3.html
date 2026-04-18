@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>3DGS Walkthrough with Joystick Controls</title>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no"
+    />
+    <link
+      type="text/css"
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/gh/google/xrblocks@main/samples/main.css"
+    />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.182.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.182.0/examples/jsm/",
+          "xrblocks": "https://cdn.jsdelivr.net/gh/google/xrblocks@build/xrblocks.js",
+          "xrblocks/addons/": "https://cdn.jsdelivr.net/gh/google/xrblocks@build/addons/",
+          "@sparkjsdev/spark": "https://sparkjs.dev/releases/spark/0.1.9/spark.module.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <script type="module">
+      import {LongSelectHandler} from 'xrblocks/addons/ui/LongSelectHandler.js';
+      import {SplatMesh, SparkRenderer} from '@sparkjsdev/spark';
+      import * as THREE from 'three';
+      import * as xb from 'xrblocks';
+
+      const PROPRIETARY_ASSETS_BASE_URL = 'https://cdn.jsdelivr.net/gh/xrblocks/proprietary-assets@main/';
+
+      const SPLAT_ASSETS = [
+        {
+          url: PROPRIETARY_ASSETS_BASE_URL + '3dgs_scenes/nyc.spz',
+          scale: new THREE.Vector3(1.3, 1.3, 1.3),
+          position: new THREE.Vector3(0, -0.15, 0),
+          quaternion: new THREE.Quaternion(1, 0, 0, 0),
+        },
+        {
+          url: PROPRIETARY_ASSETS_BASE_URL + '3dgs_scenes/alameda.spz',
+          scale: new THREE.Vector3(1.3, 1.3, 1.3),
+          position: new THREE.Vector3(0, 0, 0),
+          quaternion: new THREE.Quaternion(1, 0, 0, 0),
+        },
+        {
+          url: 'https://raw.githubusercontent.com/jumpjack/gaussian-quest-experiments/main/vrGaussians-albero-libro4.spz',
+          scale: new THREE.Vector3(1.3, 1.3, 1.3),
+          position: new THREE.Vector3(0, 0, 0),
+          quaternion: new THREE.Quaternion(1, 0, 0, 0),
+        },
+        {
+          url: 'giardino.spz', 
+          scale: new THREE.Vector3(1.3, 1.3, 1.3),
+          position: new THREE.Vector3(0, 0, 0),
+          quaternion: new THREE.Quaternion(1, 0, 0, 0),
+        }
+      ];
+
+      const FADE_DURATION_S = 1.0;
+      const MOVE_SPEED = 0.05;
+      const ROTATION_SPEED = 0.02;
+
+      function easeInOutSine(x) {
+        return -(Math.cos(Math.PI * x) - 1) / 2;
+      }
+
+      const forward = new THREE.Vector3();
+      const right = new THREE.Vector3();
+      const moveDirection = new THREE.Vector3();
+
+      class WalkthroughManager extends xb.Script {
+        async init() {
+          console.log('WalkthroughManager: Inizializzazione...');
+          this.add(new THREE.HemisphereLight(0xffffff, 0x666666, 3));
+
+          // Caricamento Splat Meshes
+          this.splatMeshes = await Promise.all(
+            SPLAT_ASSETS.map(async (asset) => {
+              const mesh = new SplatMesh({url: asset.url});
+              await mesh.initialized;
+              mesh.position.copy(asset.position);
+              mesh.quaternion.copy(asset.quaternion);
+              mesh.scale.copy(asset.scale);
+              return mesh;
+            })
+          );
+
+          const sparkRenderer = new SparkRenderer({
+            renderer: xb.core.renderer,
+            maxStdDev: Math.sqrt(5),
+          });
+          xb.core.registry.register(new xb.SparkRendererHolder(sparkRenderer));
+          xb.add(sparkRenderer);
+
+          this.currentIndex = 0;
+          xb.add(this.splatMeshes[this.currentIndex]);
+
+          this.fadeProgress = null;
+          this.nextIndex = null;
+          this.locomotionOffset = new THREE.Vector3();
+          this.baseReferenceSpace = null;
+          this.keys = {w: false, a: false, s: false, d: false};
+
+          // Variabili per calcoli "fisici" richiesti
+          this.rotation = new THREE.Quaternion();
+          this.linearVelocity = new THREE.Vector3();
+
+          document.addEventListener('keydown', this.onKeyDown.bind(this));
+          document.addEventListener('keyup', this.onKeyUp.bind(this));
+
+          xb.add(new LongSelectHandler(this.cycleSplat.bind(this), {
+            triggerDelay: 1500,
+            triggerCooldownDuration: 1500,
+          }));
+
+          this.inputHandler = new xb.InputHandler();
+          xb.add(this.inputHandler);
+
+          this.inputHandler.addEventListener('selectstart', () => {
+              if (this.fadeProgress === null) this.cycleSplat();
+          });
+        }
+
+        cycleSplat() {
+          if (this.fadeProgress !== null) return;
+          this.nextIndex = (this.currentIndex + 1) % this.splatMeshes.length;
+          this.fadeProgress = 0;
+        }
+
+        onKeyDown(event) {
+          const key = event.key.toLowerCase();
+          if (key in this.keys) this.keys[key] = true;
+          const idx = parseInt(key, 10) - 1;
+          if (idx >= 0 && idx < this.splatMeshes.length && idx !== this.currentIndex && this.fadeProgress === null) {
+            this.nextIndex = idx;
+            this.fadeProgress = 0;
+          }
+        }
+
+        onKeyUp(event) {
+          const key = event.key.toLowerCase();
+          if (key in this.keys) this.keys[key] = false;
+        }
+
+        onXRSessionEnded() {
+          super.onXRSessionEnded();
+          this.baseReferenceSpace = null;
+          this.locomotionOffset.set(0, 0, 0);
+        }
+
+        update() {
+          super.update();
+          const dt = xb.getDeltaTime();
+          this.updateFade(dt);
+          this.updateLocomotion();
+        }
+
+        updateFade(dt) {
+          if (this.fadeProgress === null) return;
+          this.fadeProgress += dt;
+          const currentMesh = this.splatMeshes[this.currentIndex];
+
+          if (this.fadeProgress < FADE_DURATION_S) {
+            currentMesh.opacity = 1 - easeInOutSine(this.fadeProgress / FADE_DURATION_S);
+          } else if (this.fadeProgress < 2 * FADE_DURATION_S) {
+            if (currentMesh.parent) {
+              xb.scene.remove(currentMesh);
+              this.currentIndex = this.nextIndex;
+              const nextMesh = this.splatMeshes[this.currentIndex];
+              nextMesh.opacity = 0;
+              xb.add(nextMesh);
+            }
+            const inProgress = (this.fadeProgress - FADE_DURATION_S) / FADE_DURATION_S;
+            this.splatMeshes[this.currentIndex].opacity = easeInOutSine(inProgress);
+          } else {
+            this.splatMeshes[this.currentIndex].opacity = 1;
+            this.fadeProgress = null;
+            this.nextIndex = null;
+          }
+        }
+
+        updateLocomotion() {
+          const xr = xb.core.renderer?.xr;
+          if (!xr?.isPresenting) return;
+
+          const camera = xr.getCamera();
+          if (!camera) return;
+
+          // Lettura assi joystick dai controller
+          const leftControllerAxes = xb.core.input.leftController?.gamepad?.axes;
+          const rightControllerAxes = xb.core.input.rightController?.gamepad?.axes;
+
+          let controllerForce = new THREE.Vector3(0, 0, 0);
+
+          // JOYSTICK SINISTRO (Movimento X/Z)
+          if (leftControllerAxes && leftControllerAxes.length >= 4) {
+            controllerForce.x += MOVE_SPEED * leftControllerAxes[2];
+            controllerForce.z += MOVE_SPEED * leftControllerAxes[3];
+          }
+
+          // JOYSTICK DESTRO (Rotazione e Movimento Y)
+          if (rightControllerAxes && rightControllerAxes.length >= 4) {
+            this.rotation.premultiply(
+              new THREE.Quaternion().setFromAxisAngle(
+                new THREE.Vector3(0, 1, 0),
+                -ROTATION_SPEED * rightControllerAxes[2]
+              )
+            );
+            controllerForce.y -= MOVE_SPEED * rightControllerAxes[3];
+          }
+
+          // TASTIERA (WASD)
+          camera.getWorldDirection(forward);
+          forward.y = 0;
+          forward.normalize();
+          right.crossVectors(forward, THREE.Object3D.DEFAULT_UP).normalize();
+
+          if (this.keys.w) controllerForce.add(forward.clone().multiplyScalar(MOVE_SPEED));
+          if (this.keys.s) controllerForce.sub(forward.clone().multiplyScalar(MOVE_SPEED));
+          if (this.keys.a) controllerForce.sub(right.clone().multiplyScalar(MOVE_SPEED));
+          if (this.keys.d) controllerForce.add(right.clone().multiplyScalar(MOVE_SPEED));
+
+          // Calcoli richiesti
+          controllerForce.clampLength(0, MOVE_SPEED);
+          controllerForce.applyQuaternion(this.rotation);
+
+          // Calcolo velocità lineare (simulata come lo spostamento di questo frame)
+          this.linearVelocity.copy(controllerForce);
+
+          // Calcolo forza costante (drag simulato)
+          const constantForce = new THREE.Vector3()
+            .copy(this.linearVelocity)
+            .multiplyScalar(-1)
+            .add(controllerForce);
+
+          // STAMPA IN CONSOLE (solo se c'è movimento rilevante)
+          if (controllerForce.length() > 0.001) {
+            console.log("--- Physics Debug ---");
+            console.log("controllerForce:", controllerForce.toArray().map(v => v.toFixed(4)));
+            console.log("linearVelocity:", this.linearVelocity.toArray().map(v => v.toFixed(4)));
+            console.log("constantForce:", constantForce.toArray().map(v => v.toFixed(4)));
+            if (leftControllerAxes) console.log("Left Stick Axes:", leftControllerAxes[2].toFixed(2), leftControllerAxes[3].toFixed(2));
+          }
+
+          // Applicazione del movimento al Reference Space di WebXR
+          if (!this.baseReferenceSpace) {
+            this.baseReferenceSpace = xr.getReferenceSpace();
+          }
+
+          // Sottraiamo il vettore forza dall'offset (il reference space si sposta in direzione opposta)
+          this.locomotionOffset.addScaledVector(controllerForce, -1);
+          
+          const transform = new XRRigidTransform(this.locomotionOffset);
+          xr.setReferenceSpace(
+            this.baseReferenceSpace.getOffsetReferenceSpace(transform)
+          );
+        }
+      }
+
+      document.addEventListener('DOMContentLoaded', function () {
+        const options = new xb.Options();
+        options.reticles.enabled = false;
+        options.hands.enabled = true;
+        options.hands.visualization = true;
+        options.hands.visualizeMeshes = true;
+        options.simulator.scenePath = null;
+
+        xb.add(new WalkthroughManager());
+        xb.init(options);
+      });
+    </script>
+  </body>
+</html>
