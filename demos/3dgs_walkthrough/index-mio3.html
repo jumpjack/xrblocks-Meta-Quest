@@ -183,84 +183,75 @@
           }
         }
 
-        updateLocomotion() {
-          const xr = xb.core.renderer?.xr;
-          if (!xr?.isPresenting) return;
+  updateLocomotion() {
+  const xr = xb.core.renderer?.xr;
+  if (!xr?.isPresenting) return;
 
-          const camera = xr.getCamera();
-          if (!camera) return;
+  const camera = xr.getCamera();
+  if (!camera) return;
 
-          // Lettura assi joystick dai controller
-          const leftControllerAxes = xb.core.input.leftController?.gamepad?.axes;
-          const rightControllerAxes = xb.core.input.rightController?.gamepad?.axes;
+  const leftControllerAxes = xb.core.input.leftController?.gamepad?.axes;
+  const rightControllerAxes = xb.core.input.rightController?.gamepad?.axes;
 
-          let controllerForce = new THREE.Vector3(0, 0, 0);
+  let controllerForce = new THREE.Vector3(0, 0, 0);
 
-          // JOYSTICK SINISTRO (Movimento X/Z)
-          if (leftControllerAxes && leftControllerAxes.length >= 4) {
-            controllerForce.x += MOVE_SPEED * leftControllerAxes[2];
-            controllerForce.z += MOVE_SPEED * leftControllerAxes[3];
-          }
+  // --- INPUT CONTROLLER ---
+  if (leftControllerAxes && leftControllerAxes.length >= 4) {
+    controllerForce.x += MOVE_SPEED * leftControllerAxes[2];
+    controllerForce.z += MOVE_SPEED * leftControllerAxes[3];
+  }
 
-          // JOYSTICK DESTRO (Rotazione e Movimento Y)
-          if (rightControllerAxes && rightControllerAxes.length >= 4) {
-            this.rotation.premultiply(
-              new THREE.Quaternion().setFromAxisAngle(
-                new THREE.Vector3(0, 1, 0),
-                -ROTATION_SPEED * rightControllerAxes[2]
-              )
-            );
-            controllerForce.y -= MOVE_SPEED * rightControllerAxes[3];
-          }
+  if (rightControllerAxes && rightControllerAxes.length >= 4) {
+    this.rotation.premultiply(
+      new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(0, 1, 0),
+        -ROTATION_SPEED * rightControllerAxes[2]
+      )
+    );
+    controllerForce.y -= MOVE_SPEED * rightControllerAxes[3];
+  }
 
-          // TASTIERA (WASD)
-          camera.getWorldDirection(forward);
-          forward.y = 0;
-          forward.normalize();
-          right.crossVectors(forward, THREE.Object3D.DEFAULT_UP).normalize();
+  // --- INPUT TASTIERA ---
+  camera.getWorldDirection(forward);
+  forward.y = 0;
+  forward.normalize();
+  right.crossVectors(forward, THREE.Object3D.DEFAULT_UP).normalize();
 
-          if (this.keys.w) controllerForce.add(forward.clone().multiplyScalar(MOVE_SPEED));
-          if (this.keys.s) controllerForce.sub(forward.clone().multiplyScalar(MOVE_SPEED));
-          if (this.keys.a) controllerForce.sub(right.clone().multiplyScalar(MOVE_SPEED));
-          if (this.keys.d) controllerForce.add(right.clone().multiplyScalar(MOVE_SPEED));
+  if (this.keys.w) controllerForce.add(forward.clone().multiplyScalar(MOVE_SPEED));
+  if (this.keys.s) controllerForce.sub(forward.clone().multiplyScalar(MOVE_SPEED));
+  if (this.keys.a) controllerForce.sub(right.clone().multiplyScalar(MOVE_SPEED));
+  if (this.keys.d) controllerForce.add(right.clone().multiplyScalar(MOVE_SPEED));
 
-          // Calcoli richiesti
-          controllerForce.clampLength(0, MOVE_SPEED);
-          controllerForce.applyQuaternion(this.rotation);
+  controllerForce.clampLength(0, MOVE_SPEED);
+  controllerForce.applyQuaternion(this.rotation);
 
-          // Calcolo velocità lineare (simulata come lo spostamento di questo frame)
-          this.linearVelocity.copy(controllerForce);
+  // --- WORKAROUND EMULATOR ---
+  const isEmulator =
+    navigator.userAgent.includes("Chrome") &&
+    window.XRDevice !== undefined;
 
-          // Calcolo forza costante (drag simulato)
-          const constantForce = new THREE.Vector3()
-            .copy(this.linearVelocity)
-            .multiplyScalar(-1)
-            .add(controllerForce);
+  if (!this.baseReferenceSpace) {
+    this.baseReferenceSpace = xr.getReferenceSpace();
+  }
 
-          // STAMPA IN CONSOLE (solo se c'è movimento rilevante)
-          if (controllerForce.length() > 0.001) {
-            console.log("--- Physics Debug ---");
-            console.log("controllerForce:", controllerForce.toArray().map(v => v.toFixed(4)));
-            console.log("linearVelocity:", this.linearVelocity.toArray().map(v => v.toFixed(4)));
-            console.log("constantForce:", constantForce.toArray().map(v => v.toFixed(4)));
-            if (leftControllerAxes) console.log("Left Stick Axes:", leftControllerAxes[2].toFixed(2), leftControllerAxes[3].toFixed(2));
-          }
+  this.locomotionOffset.addScaledVector(controllerForce, -1);
 
-          // Applicazione del movimento al Reference Space di WebXR
-          if (!this.baseReferenceSpace) {
-            this.baseReferenceSpace = xr.getReferenceSpace();
-          }
+  const transform = new XRRigidTransform(this.locomotionOffset);
 
-          // Sottraiamo il vettore forza dall'offset (il reference space si sposta in direzione opposta)
-          this.locomotionOffset.addScaledVector(controllerForce, -1);
-          
-          const transform = new XRRigidTransform(this.locomotionOffset);
-          xr.setReferenceSpace(
-            this.baseReferenceSpace.getOffsetReferenceSpace(transform)
-          );
-        }
-      }
+  try {
+    // 👉 comportamento normale (device reale)
+    xr.setReferenceSpace(
+      this.baseReferenceSpace.getOffsetReferenceSpace(transform)
+    );
+  } catch (e) {
+    console.warn("XR emulator bug - fallback attivato:", e);
 
+    // 👉 fallback per emulator: muovi la scena invece del reference space
+    if (isEmulator) {
+      xb.scene.position.addScaledVector(controllerForce, -1);
+    }
+  }
+}
       document.addEventListener('DOMContentLoaded', function () {
         const options = new xb.Options();
         options.reticles.enabled = false;
