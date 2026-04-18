@@ -335,7 +335,8 @@ console.log("  nascondo...");
   } finally {
     if (descriptor) {
       // La ripristina dopo l'avvio per non rompere altre cose
-console.log("  ripristino...");    
+console.log("  ripristinare: descriptor = ", descriptor);    
+      console.log(' Object.defineProperty(proto, "createProjectionLayer", descriptor);');
 //      Object.defineProperty(proto, "createProjectionLayer", descriptor);
     }
   }
