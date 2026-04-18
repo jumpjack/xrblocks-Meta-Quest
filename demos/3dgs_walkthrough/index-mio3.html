@@ -346,8 +346,15 @@ console.log("  proto= ", proto);
 }
 
       
-      // Quando il contenuto della pagina è caricato, aggiungi il nostro script e inizializza XR Blocks.
-document.addEventListener('DOMContentLoaded', async function () { // Aggiunto async qui
+ // 1. DISABILITA SUBITO I LAYERS (Patch permanente per Chrome 124+)
+if (typeof XRWebGLBinding !== "undefined" && XRWebGLBinding.prototype.createProjectionLayer) {
+console.log("Cancello");  
+  delete XRWebGLBinding.prototype.createProjectionLayer;
+  console.log("WebXR Patch: createProjectionLayer rimosso per compatibilità emulatore.");
+}
+
+// 2. INIZIALIZZAZIONE STANDARD
+document.addEventListener('DOMContentLoaded', function () {
   const options = new xb.Options();
   options.reticles.enabled = false;
   options.hands.enabled = true;
@@ -356,13 +363,9 @@ document.addEventListener('DOMContentLoaded', async function () { // Aggiunto as
   options.simulator.scenePath = null;
 
   xb.add(new WalkthroughManager());
-
-  // Invece di xb.init(options), usa questo:
-  await withLegacyXrLayerFallback(async () => {
-console.log("Vediamo se funziona....");    
-    await xb.init(options);
-console.log("Funzionato?");    
-  });
+  
+  // Avvia normalmente senza il wrapper async
+  xb.init(options);
 });
     </script>
   </body>
